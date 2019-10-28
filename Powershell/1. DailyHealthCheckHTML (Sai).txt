@@ -1,0 +1,698 @@
+
+#############-------------Start-----------##################
+
+######################--Global Path Declaration & ADD Citrix Snapping--###################################
+
+asnp citrix*
+
+$Path = Split-Path $MyInvocation.MyCommand.Path -Parent
+$DDCServer = Get-Content $Path\DDCServer.txt | Where-Object { $_.Trim() -ne '' }
+$LicenseServer = Get-Content $Path\LicenseServer.txt | Where-Object { $_.Trim() -ne '' }
+$InfraServers = Get-Content $Path\InfraServers.txt | Where-Object { $_.Trim() -ne '' }
+$Machines = Get-Content -Path $Path\InfraServers.txt | Where-Object { $_.Trim() -ne '' }
+
+
+
+########################################## Start- Xendesktop/XenApp Report ####################################
+
+#########################----Variable & Array Decalartion
+$hostname1=@()
+$hostname =@()
+$Array1 = @()
+$Array2 = @()
+$XenOutput= @()
+
+
+
+$ServerList = Get-BrokerMachine -AdminAddress $DDCServer | Select-Object dnsname
+
+$hostname1 += $ServerList.dnsname
+
+foreach($item in $hostname1)
+{  $hostname += $item.Split('.')[0]  }
+
+$hostname = $hostname.Split('',[System.StringSplitOptions]::RemoveEmptyEntries)
+
+$FQDN= $ServerList[1].dnsname
+
+$domain= $FQDN.Substring($FQDN.IndexOf("."))
+
+$server
+
+$BUColor1="#FFFFFF"
+$BUColor2="#FFFFFF"
+$BUColor3="#FFFFFF"
+
+#########################----Calculations of fields like CPULoad, C-drive space, Uptime,MemoryUsage
+
+ForEach($computername in $hostname) 
+{
+
+if(Test-Connection -ComputerName $computername -BufferSize 32 -Count 2 -ErrorAction SilentlyContinue)
+{
+
+
+$AVGProc = Get-WmiObject -computername $computername win32_processor | 
+Measure-Object -property LoadPercentage -Average | Select Average
+
+$OS = Get-WmiObject -Class win32_operatingsystem -computername $computername |
+Select-Object @{Name = "MemoryUsage"; Expression = {“{0:N2}” -f ((($_.TotalVisibleMemorySize - $_.FreePhysicalMemory)*100)/ $_.TotalVisibleMemorySize) }} 
+
+$vol = Get-WmiObject -Class win32_Volume -ComputerName $computername -Filter "DriveLetter = 'C:'" |
+Select-object @{Name = "C PercentFree"; Expression = {“{0:N2}” -f  (($_.FreeSpace / $_.Capacity)*100) } }
+ 
+$object = gwmi win32_operatingsystem -ComputerName $computername 
+
+$Uptime= $object.ConvertToDateTime($object.LastBootUpTime)
+
+
+$name= $computername+$domain
+$RegistrationState= Get-BrokerMachine -dnsname $name -AdminAddress $DDCServer | Select-Object registrationstate,catalogname
+$MachineType= Get-BrokerMachine -dnsname $name -AdminAddress $DDCServer | Select-Object catalogname
+
+ $Array1 += [PSCustomObject] @{ 
+        ServerName = "$computername"
+        CPULoad = "$($AVGProc.Average)%"
+        MemLoad = "$($OS.MemoryUsage)%"
+        CDrive = "$($vol.'C PercentFree')%"
+		UpTime = "$($Uptime)"
+
+        RegistrationState= $RegistrationState.registrationstate
+        MachineType= $MachineType.catalogname
+                      }
+
+}
+
+else
+{
+
+$name= $computername+$domain
+$RegistrationState= Get-BrokerMachine -dnsname $name -AdminAddress $DDCServer | Select-Object registrationstate
+$MachineType= Get-BrokerMachine -dnsname $name -AdminAddress $DDCServer | Select-Object catalogname
+
+$Array2 += [PSCustomObject] @{ 
+        ServerName = "$computername"
+        RegistrationState= $RegistrationState.registrationstate
+        MachineType= $MachineType.catalogname}
+
+}
+
+
+#########################----HTML File Generation 
+
+
+    $XenOutput = "<HTML><TITLE> XenApp-Servers / Xen-Desktops </TITLE>
+                     <BODY background-color:peachpuff>
+                     <font color =""#000000"" face=""Tahoma"">
+                     <H2> XenApp-Servers / Xen-Desktops </H2></font>
+                     <Table border=1 cellpadding=0 cellspacing=0>
+					   <TR bgcolor=#dddddd face=""Tahoma"" align=center>
+                       <TD><B><font color= ""#000000"">Server Name</font></B></TD>
+                       <TD><B><font color= ""#000000"">Avrg.CPU Utilization</font></B></TD>
+                       <TD><B><font color= ""#000000"">Memory Utilization</font></B></TD>
+                       <TD><B><font color= ""#000000"">C Drive Utilization</font></B></TD>
+                       <TD><B><font color= ""#000000"">UPTime</font></B></TD>
+                       <TD><B><font color= ""#000000"">RegistrationState</font></B></TD>
+                        <TD><B><font color= ""#000000"">MachineType</font></B></TD>
+                       <TD><B><font color= ""#000000"">Remarks</font></B></TD></TR>"	   
+					  			   
+					 
+   Foreach($Ent1 in $Array1) 
+            { 
+
+if([int]$Ent1.CPULoad.trim('%') -ge 80) 
+           
+            {$BUColor1="#FE2E2E"}
+
+            else
+            {$BUColor1="#FFFFFF"}
+             
+ if([int]$Ent1.MemLoad.trim('%') -ge 80) 
+           
+            {$BUColor2="#FE2E2E"} 
+
+            else
+            {$BUColor2="#FFFFFF"} 
+
+
+if([int]$Ent1.Cdrive.trim('%') -ge 80) 
+           
+            {$BUColor3="#FE2E2E"}
+
+            else
+            {$BUColor3="#FFFFFF"}    
+             
+          
+          $XenOutput += "<TD>$($Ent1.Servername)</TD>
+          <TD BGColor=$BUColor1 align=center><font color= ""#0000FF"">$($Ent1.CPULoad)</font></TD>
+          <TD BGColor=$BUColor2 align=center><font color= ""#0000FF"">$($Ent1.MemLoad)</font></TD>
+          <TD BGColor=$BUColor3 align=center><font color= ""#0000FF"">$($Ent1.Cdrive)</font></TD>
+          <TD align=center>$($Ent1.UpTime)<font color= ""#0000FF""></font></TD>
+          <TD align=center>$($Ent1.RegistrationState)<font color= ""#0000FF""></font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent1.MachineType)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$()</font></TD></TR>" 
+        }
+
+ Foreach($Ent2 in $Array2) 
+            { 
+         
+          $XenOutput += "<TD>$($Ent2.Servername)</TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent2.RegistrationState)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent2.MachineType)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("Not Reachable")</font></TD></TR>" 
+        }
+
+
+        
+     $XenOutput += "</Table></BODY></HTML>" 
+
+     
+        } 
+ 
+
+ ########################################## End- Xendesktop/XenApp Report ####################################
+ 
+ 
+ 
+  ########################################## Start- Catalog Report ####################################
+ 
+  $Catalogs = Get-BrokerCatalog -AdminAddress $DDCServer  ##---Capture the Catalog Results
+  ##---Array Declaration
+  
+  $CatalogOutPut= @()   
+  $Array1a= @()
+  
+  ##--- Loop Initiated to capture the value of CatalogName, AssignedToUser, NotToAssigned, AssignedToDG, ProvisioningType, AllocationType
+
+ foreach ($Catalog in $Catalogs) {
+
+ $Array1a += [PSCustomObject] @{   
+   
+        CatalogName= "$($Catalog.Name)" 
+        AssignedToUser = "$($Catalog.AssignedCount)"  
+        NotToAssigned = "$($Catalog.UnassignedCount)"   
+        AssignedToDG = "$($Catalog.UsedCount)"   
+        ProvisioningType = "$($Catalog.ProvisioningType)"
+		AllocationType = "$($Catalog.AllocationType)"  
+        
+                      }
+  
+  
+  #########################----HTML File Generation 
+
+   $CatalogOutPut= "<HTML><TITLE></TITLE>
+                     <BODY background-color:peachpuff>
+                     <font color =""#000000"" face=""Tahoma"">
+                     <H2></H2></font>
+                     <Table border=1 cellpadding=0 cellspacing=0>
+					   <TR bgcolor= #dddddd  face=""Tahoma"" align=center>
+                        <TD><B><font color= ""#000000"">CatalogName</font></B></TD>
+                       <TD><B><font color= ""#000000"">AssignedToUser</font></B></TD>
+                       <TD><B><font color= ""#000000"">NotToAssigned</font></B></TD>
+                       <TD><B><font color= ""#000000"">AssignedToDG</font></B></TD>
+                       <TD><B><font color= ""#000000"">ProvisioningType</font></B></TD>
+                       <TD><B><font color= ""#000000"">AllocationType</font></B></TD></TR>"
+                                         	   
+					  
+Foreach($Ent1a in $Array1a) 
+            {        
+          
+          $CatalogOutPut += "<TD><font color= ""#0000FF"">$($Ent1a.CatalogName)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent1a.AssignedToUser)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent1a.NotToAssigned)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent1a.AssignedToDG)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent1a.ProvisioningType)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($Ent1a.AllocationType)</font></TD></TR>"
+                  
+        }
+  $CatalogOutPut += "</Table></BODY></HTML>"
+  
+  }
+
+ 
+ ########################################## End- Catalog Report ####################################
+
+
+
+ 
+ ########################################## Start - DesktopGroup Report ####################################
+
+  
+  
+  
+  
+  $BrokerDesktopGroup = Get-BrokerDesktopGroup -AdminAddress $DDCServer  ##---Capture the Broker Desktop Group Results
+  ##---Array Declaration
+  $BgClr1 = "#FFFFFF"
+  $BgClr2 = "#FFFFFF"
+  $BrokerDesktopGroupOutput= @()   
+  $Array1b= @()
+  ##--- Loop Initiated to capture the value of DeliveryGroup ,PublishedName , DesktopKind ,SessionSupport,TotalMachines ,DesktopsAvailable  ,DesktopUregistered ,DesktopINuse ,DesktopFree ,MaintenanceMode 
+
+    
+ foreach ($Item in $BrokerDesktopGroup) {
+
+ $AssigmentDesktopsAvailable = $Item.DesktopsAvailable
+ $AssigmentDesktopsInUse = $Item.DesktopsInUse
+ $AssigmentDesktopsKind = $Item.DesktopKind
+ $SessionSupport = $Item.SessionSupport
+
+ if ($SessionSupport -eq "MultiSession" ) { 
+	
+	$DesktopsFree =  "N/A"
+	$DesktopsInUse =  "N/A"
+		
+	}
+    else { 
+			#DesktopsInUse
+			$DesktopsInUse  = "$($Item.DesktopsInUse)"
+	
+			#DesktopFree
+
+			$DesktopsFree = $AssigmentDesktopsAvailable - $AssigmentDesktopsInUse
+
+if ($AssigmentDesktopsKind  -eq "shared") {
+			if ($DesktopsFree -gt 0 ) {
+			
+				$DesktopsFree = $DesktopsFree
+
+			} elseif ($DesktopsFree -lt 0 ) {
+			
+				$DesktopsFree = "N/A"
+
+			} else {
+				$DesktopsFree = $DesktopsFree
+				
+			}
+			} else {
+			$DesktopsFree = "N/A"
+			}
+			 
+			
+  	}
+
+    $Array1b += [PSCustomObject] @{   
+   
+        DeliveryGroup= "$($Item.Name)" 
+        PublishedName  = "$($Item.PublishedName)"        
+        DesktopKind=  "$($Item.DesktopKind)" 
+        SessionSupport = "$($Item.SessionSupport )"  
+        TotalMachines   = "$($Item.TotalDesktops)"   
+        DesktopsAvailable = "$($Item.DesktopsAvailable)"
+		DesktopUregistered = "$($Item.DesktopsUnregistered)" 
+        DesktopINuse = "$($DesktopsInUse)"
+        DesktopsFree = "$($DesktopsFree)"
+        MaintenanceMode = "$($Item.InMaintenanceMode)" 
+    
+        
+                      }
+  
+  
+  #########################----HTML File Generation 
+
+   $BrokerDesktopGroupOutput= "<HTML><TITLE></TITLE>
+                     <BODY background-color:peachpuff>
+                     <font color =""#000000"" face=""Tahoma"">
+                     <H2></H2></font>
+                     <Table border=1 cellpadding=0 cellspacing=0>
+					   <TR bgcolor=#dddddd align=center>
+                       <TD><B><font color= ""#000000"">DeliveryGroup</font></B></TD>
+                       <TD><B><font color= ""#000000"">PublishedName</font></B></TD>
+                       <TD><B><font color= ""#000000"">DesktopKind</font></B></TD>
+                       <TD><B><font color= ""#000000"">SessionSupport</font></B></TD>
+                       <TD><B><font color= ""#000000"">TotalMachines</font></B></TD>
+                       <TD><B><font color= ""#000000"">DesktopsAvailable</font></B></TD>
+                       <TD><B><font color= ""#000000"">DesktopUregistered</font></B></TD>
+                       <TD><B><font color= ""#000000"">DesktopINuse</font></B></TD>
+                       <TD><B><font color= ""#000000"">DesktopsFree</font></B></TD>
+                       <TD><B><font color= ""#000000"">MaintenanceMode</font></B></TD></TR>"
+                     
+                                         	   
+					  
+Foreach($Ent1b in $Array1b) 
+            {        
+          
+             
+ if($Ent1b.DesktopUregistered -eq '0') 
+           
+            {$BgClr1="#008000"}
+
+            else
+
+            {$BgClr1="#FE2E2E"} 
+
+
+if($Ent1b.MaintenanceMode -eq "False") 
+           
+            {$BgClr2="#008000"}
+
+else 
+           
+            {$BgClr2="#FE2E2E"}  
+
+
+
+
+          $BrokerDesktopGroupOutput += "<TD><font color= ""#0000FF"">$($Ent1b.DeliveryGroup)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.PublishedName)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.DesktopKind)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.SessionSupport)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.TotalMachines)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.DesktopsAvailable)</font></TD>
+                          <TD BGColor=$BgClr1 align=center><font color= ""#0000FF"">$($Ent1b.DesktopUregistered)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.DesktopInUse)</font></TD>
+                          <TD align=center><font color= ""#0000FF"">$($Ent1b.DesktopsFree)</font></TD>
+                          <TD BGColor=$BgClr2 align=center><font color= ""#0000FF"">$($Ent1b.MaintenanceMode)</font></TD></TR>"
+                          
+                  
+        }
+  $BrokerDesktopGroupOutput += "</Table></BODY></HTML>"
+  
+  }
+
+
+########################################## End- - DesktopGroup Report ####################################
+
+
+
+################### Start- Citrix License Usage ####################
+
+#########################----Variable & Array Decalartion
+$LicResult = @()
+$LicReport = @()
+
+# get the cert hash which is needed for the Get-LicInventory command
+$certhash = (get-liccertificate -adminaddress $LicenseServer).certhash
+# get all the licenses where the licenses are actually being used, and discard the start-up license
+$license = Get-LicInventory -AdminAddress $LicenseServer -CertHash $certhash | ?{$_.LocalizedLicenseProductName -notlike "citrix start-up*"}
+# foreach loop will go through each license record in $license, calculate the usage and pull out the results 
+
+foreach ($lic in $license) {
+
+$percentused = ("{0:P0}" -f ([math]::round(($lic.licensesinuse / $lic.LicensesAvailable),2))) -replace " ",""
+
+$remain = $lic.licensesavailable - $lic.licensesinuse
+
+
+$LicResult += [PSCustomObject] @{ 
+        LicenseName = "$($lic.LocalizedLicenseProductName)"
+        Total = "$($lic.licensesavailable)"
+        InUse = "$($lic.licensesinuse)"
+        Remain = "$($remain)"
+        PctUsed = "$($percentused)"
+
+}
+
+#########################----HTML File Generation 
+
+$LicReport = "<HTML><TITLE> Citrix License Usage </TITLE>
+                     <BODY background-color:peachpuff>
+                     <font color =""#000000"" face=""Tahoma"">
+                     <H2> Citrix License Usage  </H2></font>
+                     <Table border=1 cellpadding=0 cellspacing=0>
+			           <TR bgcolor=#dddddd align=center>
+                       <TD><B><font color= ""#000000"">LicenseName</font></B></TD>
+                       <TD><B><font color= ""#000000"">Total</font></B></TD>
+                       <TD><B><font color= ""#000000"">InUse</font></B></TD>
+                       <TD><B><font color= ""#000000"">Remain</font></B></TD>
+                       <TD><B><font color= ""#000000"">% Used</font></B></TD></TR>"	   
+					 
+   Foreach($LN in $LicResult) 
+    
+        { 
+        $LicReport += "<TD><font color= ""#0000FF"">$($LN.LicenseName)</font></TD>
+         <TD align=center><font color= ""#0000FF"">$($LN.Total)</font></TD>
+         <TD align=center><font color= ""#0000FF"">$($LN.InUse)</font></TD>
+         <TD align=center><font color= ""#0000FF"">$($LN.Remain)</font></TD>
+         <TD align=center><font color= ""#0000FF"">$($LN.PctUsed)</font></TD></TR>" 
+        }
+     $LicReport += "</Table></BODY></HTML>"
+}    
+
+######################----------- End- Citrix License Usage-------------###################
+
+
+###################--------Start- Citrix Infra Servers Report-------------#################
+
+#########################----Variable & Array Decalartion
+
+ $InfraServices = @()
+ $ArrayInfra1=@()
+ $ArrayInfra2 =@()
+ $BClr1 = "#FFFFFF"
+ $BClr2 = "#FFFFFF"
+ $BClr3 = "#FFFFFF"
+
+#########################----Calculations of fields like CPULoad, C-drive space, Uptime,MemoryUsage
+
+ForEach($Node in $InfraServers) 
+{
+
+if(Test-Connection -ComputerName $Node -BufferSize 32 -Count 2 -ErrorAction SilentlyContinue)
+{
+
+
+$AVGProc = Get-WmiObject -computername $Node win32_processor | 
+Measure-Object -property LoadPercentage -Average | Select Average 
+$OS = Get-WmiObject -Class win32_operatingsystem -computername $Node |
+Select-Object @{Name = "MemoryUsage"; Expression = {“{0:N2}” -f ((($_.TotalVisibleMemorySize - $_.FreePhysicalMemory)*100)/ $_.TotalVisibleMemorySize) }} 
+$vol = Get-WmiObject -Class win32_Volume -ComputerName $Node -Filter "DriveLetter = 'C:'" |
+Select-object @{Name = "C PercentFree"; Expression = {“{0:N2}” -f  (($_.FreeSpace / $_.Capacity)*100) } } 
+$object = gwmi win32_operatingsystem -ComputerName $Node 
+$Uptime= $object.ConvertToDateTime($object.LastBootUpTime)
+
+
+ $ArrayInfra1 += [PSCustomObject] @{ 
+        ServerName = "$Node"
+        CPULoad = "$($AVGProc.Average)%"
+        MemLoad = "$($OS.MemoryUsage)%"
+        CDrive = "$($vol.'C PercentFree')%"
+		UpTime = "$($Uptime)"
+       
+                      }
+
+}
+
+else
+{
+
+$ArrayInfra2 += [PSCustomObject] @{ 
+        ServerName = "$Node"
+        }
+
+}
+	
+
+#########################----HTML File Generation 
+
+   $InfraServices = "<HTML><TITLE> Citrix Infra Servers </TITLE>
+                     <BODY background-color:black>
+                     <font color =""#000000"" face=""Tahoma"">
+                     <H2> Citrix Infra Servers   </H2></font>
+                     <Table border=1 cellpadding=0 cellspacing=0 width = 3>
+					   <TR bgcolor=#dddddd align=center>
+                       <TD><B><font color= ""#000000"">Server Name</font></B></TD>
+                       <TD><B><font color= ""#000000"">Avrg.CPU Utilization</font></B></TD>
+                       <TD><B><font color= ""#000000"">Memory Utilization</font></B></TD>
+                       <TD><B><font color= ""#000000"">C Drive Utilizatoin</font></B></TD>
+                       <TD><B><font color= ""#000000"">UPTime</font></B></TD>
+                       <TD><B><font color= ""#000000"">Remarks</font></B></TD></TR>"
+                       	   
+					  			   
+					 
+   Foreach($itm1 in $ArrayInfra1) 
+            { 
+
+            
+ if([int]$Ent1.CPULoad.trim('%') -ge 80) 
+           
+       {$BClr1="#FE2E2E"}
+
+   else
+       {$BClr1="#FFFFFF"}
+             
+ if([int]$itm1.MemLoad.trim('%') -ge 80) 
+           
+       {$BClr2="#FE2E2E"}
+
+  else
+      {$BClr2="#FFFFFF"} 
+
+
+if([int]$itm1.Cdrive.trim('%')  -ge 80) 
+           
+      {$BClr3="#FE2E2E"}
+
+    else
+       {$BClr3="#FFFFFF"}    
+                      
+          $InfraServices += "<TD><font color= ""#0000FF"">$($itm1.Servername)</font></TD>
+          <TD BGColor=$BClr1 align=center><font color= ""#0000FF"">$($itm1.CPULoad)</font></TD>
+          <TD BGColor=$BClr2 align=center><font color= ""#0000FF"">$($itm1.MemLoad)</font></TD>
+          <TD BGColor=$BClr3 align=center><font color= ""#0000FF"">$($itm1.Cdrive)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$($itm1.UpTime)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$()</TD></font></TR>" 
+        }
+Foreach($itm2 in $ArrayInfra2) 
+            { 
+         
+          $InfraServices += "<TD><font color= ""#0000FF"">$($itm2.Servername)</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("N/A")</font></TD>
+          <TD align=center><font color= ""#0000FF"">$("Not Reachable")</font></TD>
+          </TR>" 
+        }
+ 
+
+     $InfraServices += "</Table></BODY></HTML>" 
+
+     
+        } 
+		
+	
+##################------------End - Citrix Infra Server Report------------------#################
+ 
+ 
+
+
+##################--------------Start - Citrix Services State-------------------#################
+
+#########################----Variable & Array Decalartion
+
+$CtxServiceList = @()
+$properties=@(
+     #'MachineName',
+     'Status',
+     'StartType',
+     'DisplayName',
+     @{N='DependentServices'; E={$_.DependentServices -join ';'}}
+
+) 
+
+
+
+#########################----Testing Conncectivity and Fetching Services Detials
+
+foreach ($computer in $machines){
+
+if(Test-Connection -ComputerName $computer -BufferSize 32 -Count 2 -ErrorAction SilentlyContinue){
+
+$services = Get-Service citrix* -ComputerName "$computer" 
+
+
+#########################----Adding CSS Code
+
+if($services -ne $null)
+{
+ $pre = @"
+
+  <H2>$Computer - Citrix Services Status</H2>   
+
+"@ 
+
+$style = "<style>BODY{font-family: Tahoma; font-size: 08pt;}"
+$style = $style + "TABLE{border: 1px solid black; border-collapse: collapse;width: 40%;}"
+$style = $style + "TH{border: 1px solid black; background: #dddddd; padding: 5px; }"
+$style = $style + "TD{border: 1px solid black; padding: 5px;color:blue; }"
+$style = $style + "</style>"
+
+#########################----HTML File Generation 
+
+$CtxServiceList += $services | Select-Object $properties | ConvertTo-Html -Head $style -precontent  $pre #
+}}}
+
+##################---------------End - Citrix Services State--------------------######################
+
+
+
+
+##################----------------Start - Connection Failure State---------------------#################
+
+#########################----Variable & Array Decalartion
+
+$confailure = @()
+
+
+#########################----Adding CSS Code
+
+ $pre1 = @"
+
+  <H2>Connection Failure Status</H2>   
+
+"@ 
+
+$style1 = "<style>BODY{font-family: Tahoma; font-size: 08pt;}"
+$style1 = $style1 + "TABLE{border: 1px solid black; border-collapse: collapse;width: 30%;}"
+$style1 = $style1 + "TH{border: 1px solid black; background: #dddddd; padding: 5px; }"
+$style1 = $style1 + "TD{border: 1px solid black; padding: 5px;color:blue; }"
+$style1 = $style1 + "</style>"
+
+
+#########################----HTML File Generation 
+
+$confailurelist= Get-BrokerConnectionLog -AdminAddress $DDCServer -MaxRecordCount 99999 #-Filter {ConnectionFailureReason -ne ‘None'} 
+
+
+$confailurelist | Select @{Label="ConnectionFailure(at Time)";Expression={$_.BrokeringTime}},@{Label="UserName";Expression={$_.BrokeringUserName}},ConnectionFailureReason, @{Label="MachineName";Expression={$_.MachineDNSName}}
+
+$confailure += $confailurelist | ConvertTo-Html -Head $style1 -precontent  $pre1 
+
+##################----------End - Connection Failure State----------------#################
+
+
+
+##################-----------------Start - Machine Failure State----------------#################
+
+
+#########################----Variable, Array and Property Decalartion  
+$MachineFailure = @()
+
+$prop=@(
+     'MachineName',
+     'faultstate'     
+     'InMaintenanceMode',
+     'Lastconnectionfailure',
+     'Lastconnectiontime',
+     'LastDeregistrationtime',
+     'LastDeregistrationreason',     
+     'MachineInternalState',
+     'PowerActionPending'
+     
+) 
+
+
+#########################----Adding CSS Code
+ $pre2 = @"
+
+  <H2>Machine Failure Status</H2>   
+
+"@ 
+
+$style2 = "<style>BODY{font-family: Tahoma; font-size: 08pt;}"
+$style2 = $style2 + "TABLE{border: 1px solid black; border-collapse: collapse;width: 30%;}"
+$style2 = $style2 + "TH{border: 1px solid black; background: #dddddd; padding: 5px;color:black; }"
+$style2 = $style2 + "TD{border: 1px solid black; padding: 5px;color:blue;}"
+$style2 = $style2 + "</style>"
+
+
+#########################----HTML File Generation
+
+$MachineFailure += Get-BrokerMachine -AdminAddress $DDCServer| select $prop |ConvertTo-Html -Head $style2 -precontent  $pre2  
+
+##################--------------END - Machine Failure State-----------------#################
+
+
+##################--------------Combining All Modules for final output-----------------#################
+  
+$Output = $XenOutput + $CatalogOutPut + $BrokerDesktopGroupOutput + $LicReport + $InfraServices + $CtxServiceList + $confailure + $MachineFailure
+  
+ 
+$Output | out-file -filepath $Path\DailyCitrixReport.html 
+Invoke-Expression $Path\DailyCitrixReport.html   ##### This is optional, if not in use put '#' at the start of the line.
+

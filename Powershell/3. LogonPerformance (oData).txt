@@ -1,0 +1,44 @@
+#Description : The Purpose of this Script is to Obtain Logon Times for Sessions in the Environment.
+#Requirements:
+#---------------------------------
+#1. A Service Account.
+#2. Name of a Delivery Controller to access the oData services.
+#---------------------------------
+
+#This line creates the List to where the results are going to be written to
+$itemlist = New-Object System.Collections.ArrayList
+
+#This line configures the time range on the report. Currently it is set to report on the last 24 hours (-1day).
+$daysAgo = -1
+$date = (Get-Date).AddDays($daysAgo)
+
+#The following three lines create the credential object for the oData call
+$user = "<username>"
+$password = ConvertTo-SecureString -String "<password>" -AsPlainText -Force 
+$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $user, $password
+
+#The following two lines perform the oData Call
+$odataSessions = Invoke-RestMethod -Uri "<delivery controller name>/Citrix/Monitor/OData/v1/Data/Sessions?`$filter=StartDate ge datetime'$($date | Get-Date -Format yyyy-MM-dd)'" -Credential $Credential
+$odataUsers = Invoke-RestMethod -Uri "<delivery controller name>/Citrix/Monitor/OData/v1/Data/Users" -Credential $Credential
+
+#These lines iterate through every session key in both the SDK and oData and matches them in order to pull the username and logon time
+foreach ($odataSession in $odataSessions)
+{
+    foreach ($odataUser in $odataUsers)
+	{
+        if($odataSession.content.properties.UserId.'#text' -eq $odataUser.content.properties.Id.'#text' -And ($odataSession.content.properties.LogOnDuration.'#text')/1000 -ne '0')
+		{
+            $properties = @{'UserName' = $odataUser.content.properties.Domain + "\" + $odataUser.content.properties.UserName; 'LogonDuration' = ($odataSession.content.properties.LogOnDuration.'#text')/1000; 'SessionStartTime'= [Datetime]$odataSession.content.properties.StartDate.'#text'}
+            $result = New-Object -TypeName PSObject -Prop $properties
+            Write-Output $result
+            $idx = $itemlist.Add($result)
+		}
+    }
+}
+
+#Average Logon Time by Averaging all Logon Durations
+$AvgLogonTime = (($itemlist | select -ExpandProperty LogonDuration)|Measure-Object -Average).Average
+
+#The following two lines create the exports in both HTML and CSV. You will need to modify the output path of the file if another directory other than the C drive is desired
+#$itemlist | ConvertTo-Html | Set-Content  D:\logon-status_$((Get-Date).ToString('MM-dd-yyyy_hh-mm-ss')).html
+#$itemlist | Export-Csv D:\logon-status_$((Get-Date).ToString('MM-dd-yyyy_hh-mm-ss')).csv

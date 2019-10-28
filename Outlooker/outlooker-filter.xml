@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<filters system_datetime_format="dd-MM-yy HH:mm tt">
+
+	
+	<match to="group1fcd5996">
+		<exclude from="group1fcd5996"/>
+		<exclude from="gprod@service-now.com"/>
+		<exclude from="snownotifications@WSGC.com"/>
+		<exclude from="gerdau@service-now.com "/>
+		<exclude from="svc_jiramail@lendingclub.com"/>
+		<exclude from="gulfstream@service-now.com"/>
+		<exclude from="aruser@bnsf.com"/>
+		<exclude from="dxcdomprdeu@service-now.com"/>
+		<exclude from="gerdau@service-now.com"/>
+	</match>
+	
+	<match cc="group1fcd5996">
+		<exclude from="group1fcd5996"/>
+	</match>
+	
+	<match from="group1fcd5996">
+	
+	</match>
+	
+	<match from="schrodersprod@service-now.com">
+	
+	</match>
+	
+	<match to="BroadcomSaphoSupport@citrite.net">
+	
+	</match>
+	
+	<match cc="BroadcomSaphoSupport@citrite.net">
+	
+	</match>
+	
+	<match to="citrix-servicenow-alerts@primetherapeutics.com">
+	
+	</match>
+	
+	<match from="samanage@uslbm.com">
+	
+	</match>
+	
+	<match from="donotreplynotifications@citrix.com">
+	
+	</match>
+	
+	<match from="bnsfcitrixadmin@bnsf.com">
+	
+	</match>
+	
+</filters>
+
+
